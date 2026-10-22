@@ -1,0 +1,4 @@
+interface:
+  display_name: "申请书绘图"
+  short_description: "先选模板再填入科研申请书内容，生成并迭代图片，按需交付文档或可编辑PPT"
+  default_prompt: "请使用 $proposal-figure-design 为我的申请书配图，先展示三个模板供我选择，再按选定布局整理内容、编写绘图Markdown并生成图片。"
