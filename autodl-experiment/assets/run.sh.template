@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROJECT_NAME="<PROJECT_NAME>"
+RUN_ID="<RUN_ID>"
+CONDA_ENV="${CONDA_ENV:-<CONDA_ENV>}"
+PROJECT_DIR="${PROJECT_DIR:-/root/autodl-tmp/${PROJECT_NAME}}"
+RUN_ROOT="${RUN_ROOT:-${PROJECT_DIR}/runs/${RUN_ID}}"
+NOTIFY_ENV="${NOTIFY_ENV:-${RUN_ROOT}/notify.env}"
+THRESHOLDS="<THRESHOLDS>"
+
+# Delegate the entire payload, including environment setup, to one lifecycle owner.
+if [[ "${1:-}" != --autodl-payload ]]; then
+  exec bash "<SKILL_SCRIPT_DIR>/wrap_existing_run.sh" "$0" "$RUN_ROOT" \
+    "$PROJECT_NAME" "$RUN_ID" "$NOTIFY_ENV" "$THRESHOLDS" -- --autodl-payload
+fi
+
+export PYTHONUNBUFFERED=1
+# Retain the caller's verified HF_HOME/HF_HUB_CACHE or the library defaults.
+
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  source "${CONDA_SH:-/root/miniconda3/etc/profile.d/conda.sh}"
+  conda activate "${CONDA_ENV}"
+fi
+export PYTHON_BIN="${PYTHON_BIN:-python}"
+
+cd "$PROJECT_DIR"
+<LAUNCH_COMMAND>

@@ -1,0 +1,7 @@
+interface:
+  display_name: "AutoDL Experiment Runner"
+  short_description: "Run remote GPU experiments with alerts"
+  brand_color: "#2563EB"
+  default_prompt: "Use $autodl-experiment to launch, monitor, notify, troubleshoot, and archive a remote AutoDL GPU experiment."
+policy:
+  allow_implicit_invocation: true
