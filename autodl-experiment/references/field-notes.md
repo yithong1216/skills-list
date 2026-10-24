@@ -152,3 +152,44 @@ focal 类有界损失在死模型上照样收敛。看 `loss_cls`、total loss �
 0.05 置信度以下，两阶段 top-k 在背景 token 间打破近似平局的方式随 kernel 而异，于是垃圾
 query 带着任意 box（最大偏差 0.81），而 0.05 以上的 query 一致到 8.5e-05。用真实域内 crop
 做对照。
+
+## 从 SKILL.md 移出的事故细节（2026-10-24 精简时迁入）
+
+SKILL.md 只保留规则；下面是规则背后的原始事故，判断边界情况时查这里。
+
+- **source of truth**：曾照着一份数小时前的远端旧快照重写约 700 行，本地才是权威版本。
+  只加在远端 staged 副本里的环境修复会被下一次同步覆盖。
+- **运行中改 config**：replay 还在跑时编辑它会重复读取的 config（类别数 5→10），后 10 个
+  variant 被换了评测器，整张表作废。
+- **`network_turbo`**：不开时 huggingface.co 完全不可达；交互式 shell 的 export 不被
+  `screen` 内进程继承，必须写进 `run.sh`。
+- **`ulimit -n`**：默认 1024，多 worker 大 batch 死在 `received 0 items of ancdata`；
+  `ulimit -n 65536` 加 `torch.multiprocessing.set_sharing_strategy('file_system')` 两条一起。
+- **可 import 性**：无 `setup.py` 的仓库 `pip install -e .` 是 no-op，需 `PYTHONPATH=<repo>`；
+  mmdet 系要在 build dataloader 前 `init_default_scope('mmdet')`，否则自定义 Dataset 不在 registry。
+- **lr sanity**：「为了对齐 baseline 沿用同一 lr」不是对照。SGD 0.02 适配 ResNet+FPN，接在冻结
+  ViT 上的随机初始化 head 直接发散成全背景解；整个 30 epoch 才 22 分钟，先探 lr 永远划算。
+- **绕过工具崩溃**：auditor 崩了就去掉 `--full-dictionary`——而那个 flag 正是填充 target 的，
+  schema 全是 −1、所有 variant 塌成同一分数。
+- **一个指标两套实现**：报告打印本地 VOC-AP、gate 读官方 key，同一 run 两个产物给出相反结论
+  （+9.42 vs −13.42 mAP）。
+- **未拆解的增益**：同时改 freezing 和 batch 拆分得到 +38.6 mAP；配平重测后 freezing 只值 +3.5、
+  batch 值 +4.8。
+- **空对照**：shuffled 控制与真信号给出到小数点后 15 位相同的数——通道根本没接上。
+- **改了验证集**：为修训练 OOM 把「每图 box 上限」同时套在 train 和 val 上：val 只少 3.9% 的图
+  却少了 36% 的标注，同一权重 mAP 0.3693 → 0.5770，+0.21 全是换验证集的假象。
+
+## 低开销循环的来历（CARLA/F2D 项目，2026-10-21 至 10-23）
+
+三天换了 6 台实例（cqa1 4090D、region-9 V100、westb、westd×2、weste）。一个会话发了 949 条
+ssh，平均 745 字符，其中 371 条是临时拼的状态查询、214 条带 `sleep ≥10`、66 条读了还不存在的
+日志路径、32 条撞 2 分钟超时；只有 8 条是上传脚本后执行。用户问了约 30 次「目前怎么样了」，
+还有一次用户比 agent 先发现微调已结束。后期自然演化出的 `monitor_k4.sh`（本地后台、按
+ALERT/EVENT/HOURLY 退出、cgroup 测 CPU、CPU 闲置也报警）是有效做法，已通用化为
+`scripts/watch_events.sh` + `assets/status.sh.template`。
+
+- 容器的 `nproc` 显示宿主 208 核，实际配额 22 核；未限线程的 `probe_fit.py` 起了 169 个线程，
+  吃掉约 15 核，拖慢同机 5 个 CARLA worker，被另一个会话杀掉。线程上限按 cgroup 配额与并发
+  任务数算，不按 `nproc`。
+- 两个会话共用一台机器和同一个队列：靠 SendMessage 交接「这个脚本从现在归你」，有效；没有
+  交接的任务会互相踩线程和队列。

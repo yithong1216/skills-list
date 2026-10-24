@@ -57,6 +57,22 @@ groups. Continue independent authorized work while blocked.
 watcher or host automation actually registered and checked; a chat promise does
 not create one.
 
+## Low-overhead loop (added 2026-10-24)
+
+Remote work is dominated by round-trips and bytes read into context, not GPU time.
+On every new host, first update the project's `~/.ssh/config` alias in place and use
+`ssh <alias>` for everything. Upload one project `status.sh` (from
+`assets/status.sh.template`) that prints per-run liveness/exit/last log line, 5 s mean
+GPU util, cgroup CPU use, disk headroom, plus `ALERT`/`EVENT` lines; every status check
+is one call to it. Wait with `scripts/watch_events.sh <alias> "bash <root>/status.sh"`
+launched with `run_in_background`: it exits on a new ALERT/EVENT, repeated ssh failure,
+or the heartbeat, which re-invokes the agent. No foreground `sleep; ssh` polling.
+Report each EVENT to the user immediately; treat idle GPU/CPU as an ALERT. Before
+running jobs side by side, list CPU/GPU/RAM/IO needs per job. Cap threads from the
+cgroup quota (`/sys/fs/cgroup/cpu.max`), not `nproc`. On a machine shared by several
+sessions, give every queue/script/output dir one owning session and hand over
+explicitly. Keep a local `bootstrap.sh` so a new instance is one upload + one run.
+
 ## Notifications and completion
 
 Email is opt-in, with wrapper default off. Existing SMTP settings do not authorize

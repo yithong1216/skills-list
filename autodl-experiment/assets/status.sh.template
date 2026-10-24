@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# One-call remote status for every run of this project. Upload once per instance to
+# <PROJECT_ROOT>/status.sh and call `ssh <alias> bash <PROJECT_ROOT>/status.sh`
+# instead of ad-hoc tail/screen/nvidia-smi one-liners. scripts/watch_events.sh reacts to
+# the ALERT/EVENT lines. Keep output short: it is read by the agent on every check.
+set -u
+RUNS="${RUNS:-<PROJECT_ROOT>/runs/*}"   # run roots made by wrap_existing_run.sh / run.sh.template
+GPU_IDLE_PCT="${GPU_IDLE_PCT:-15}"      # ALERT when runs are active and mean GPU util is below this
+DATA_DISK="${DATA_DISK:-/root/autodl-tmp}"
+
+echo "now=$(date +%F_%T)"
+
+# CPU: the container quota, not nproc (nproc shows the host's cores).
+quota=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null | awk '$1!="max"{printf "%.0f", $1/$2}')
+a=$(awk '/usage_usec/{print $2}' /sys/fs/cgroup/cpu.stat 2>/dev/null); sleep 3
+b=$(awk '/usage_usec/{print $2}' /sys/fs/cgroup/cpu.stat 2>/dev/null)
+[ -n "$a" ] && [ -n "$b" ] && echo "cpu_cores_used=$(( (b - a) / 3000000 ))/${quota:-?}"
+
+# GPU: mean of 5 samples 1 s apart (single samples miss bursty training).
+gpu_mean=$(for i in 1 2 3 4 5; do nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits; sleep 1; done \
+  | awk '{s+=$1; n++} END{if(n) printf "%.0f", s/n}')
+echo "gpu_util_mean=${gpu_mean:-?} gpu_mem=$(nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader | tr '\n' ' ')"
+echo "disk_data=$(df -h "$DATA_DISK" 2>/dev/null | awk 'NR==2{print $4" free"}') disk_sys=$(df -h / | awk 'NR==2{print $4" free"}')"
+
+active=0
+for r in $RUNS; do
+  [ -d "$r" ] || continue
+  id=$(basename "$r")
+  # session_name may be screen's $STY ("<pid>.<name>"); match on the name part.
+  sess=$(sed -n 's/^session_name=//p' "$r/run_metadata.txt" 2>/dev/null | sed 's/^[0-9]*\.//'); sess=${sess:-$id}
+  alive=0; screen -ls 2>/dev/null | grep -q "\.${sess}[[:space:]]" && alive=1
+  ec=$(cat "$r/exit_code.txt" 2>/dev/null)
+  last=$(tail -n 1 "$r/logs/main.log" 2>/dev/null | tr -d '\r' | cut -c1-160)
+  echo "run=$id alive=$alive exit=${ec:-none} last=$last"
+  if [ -n "$ec" ]; then
+    echo "EVENT $id exited code=$ec"
+  elif [ "$alive" = 0 ]; then
+    echo "ALERT $id PROCESS_GONE (no session, no exit code)"
+  else
+    active=$((active + 1))
+    tail -n 200 "$r/logs/main.log" 2>/dev/null | grep -qE 'Traceback|CUDA out of memory|OutOfMemory|Killed|loss[^0-9]*nan' \
+      && echo "ALERT $id error pattern in log tail"
+  fi
+done
+echo "active_runs=$active"
+if [ "$active" -gt 0 ] && [ -n "${gpu_mean:-}" ] && [ "$gpu_mean" -lt "$GPU_IDLE_PCT" ]; then
+  echo "ALERT GPU idle (${gpu_mean}% < ${GPU_IDLE_PCT}%) with $active active runs; check phase (val/IO) before acting"
+fi
+
+# Project-specific checks (queues, VALID markers, worker counts) go below; print
+# EVENT lines for milestones the user wants reported and ALERT lines for stalls.
