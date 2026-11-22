@@ -9,3 +9,4 @@ Personal collection of Claude Code skills.
 | [proposal-figure-design](proposal-figure-design/) | 申请书绘图: pick reference templates and draw figures for grant-proposal sections (Codex skill) |
 | [image-to-editable-ppt](image-to-editable-ppt/) | Rebuild slide images / scanned decks / PDFs into object-level editable PPTX (Codex skill) |
 | [thesis-writing-style](thesis-writing-style/) | 学位论文写作语言与框架：章引言、章小结、公式解释、图表分析、结论展望的写法规范 |
+| [ai-research-with-ai](ai-research-with-ai/) | Do AI/ML research with an AI agent as partner: topic and idea filtering, tiny experiments, fair baselines, autonomous GPU loops, conference-style paper writing |
